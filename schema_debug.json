@@ -1,0 +1,63 @@
+{
+  "inputFields": [
+    {
+      "name": "initialValue",
+      "type": {
+        "name": null,
+        "kind": "NON_NULL",
+        "ofType": {
+          "name": "Decimal",
+          "kind": "SCALAR"
+        }
+      }
+    },
+    {
+      "name": "code",
+      "type": {
+        "name": "String",
+        "kind": "SCALAR",
+        "ofType": null
+      }
+    },
+    {
+      "name": "customerId",
+      "type": {
+        "name": "ID",
+        "kind": "SCALAR",
+        "ofType": null
+      }
+    },
+    {
+      "name": "expiresOn",
+      "type": {
+        "name": "Date",
+        "kind": "SCALAR",
+        "ofType": null
+      }
+    },
+    {
+      "name": "note",
+      "type": {
+        "name": "String",
+        "kind": "SCALAR",
+        "ofType": null
+      }
+    },
+    {
+      "name": "recipientAttributes",
+      "type": {
+        "name": "GiftCardRecipientInput",
+        "kind": "INPUT_OBJECT",
+        "ofType": null
+      }
+    },
+    {
+      "name": "templateSuffix",
+      "type": {
+        "name": "String",
+        "kind": "SCALAR",
+        "ofType": null
+      }
+    }
+  ]
+}

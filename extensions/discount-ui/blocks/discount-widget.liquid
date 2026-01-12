@@ -1,0 +1,328 @@
+<style>
+        /* ... existing styles ... */
+    .redeem-btn {
+        width: 100%;
+        margin-top: 10px;
+        background: #2c6e49;
+        color: white;
+        border: none;
+        padding: 10px;
+        font-weight: bold;
+        cursor: pointer;
+        text-transform: uppercase;
+        font-size: 12px;
+    }
+    .redeem-btn:hover { opacity: 0.9; }
+    .gift-card-helper {
+    max-width: 420px;
+    margin: 2rem 0;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    .gift-card-title {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    }
+
+    .gift-card-input-row {
+    display: flex;
+    border: 1px solid #000;
+    }
+
+    #gc-input {
+    flex: 1;
+    border: none;
+    padding: 12px;
+    font-size: 14px;
+    outline: none;
+    }
+
+    #gc-action-btn {
+    background: #000;
+    color: #fff;
+    border: none;
+    padding: 0 20px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    }
+
+    #gc-action-btn.remove {
+    background: #555;
+    }
+
+    #gc-action-btn.loading .btn-text {
+    display: none;
+    }
+
+    .loader {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255,255,255,.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin .6s linear infinite;
+    }
+
+    @keyframes spin {
+    to { transform: rotate(360deg); }
+    }
+
+    .gc-message {
+    margin-top: 8px;
+    font-size: 13px;
+    }
+
+    .gc-message.error {
+    color: #c00;
+    }
+
+    .gc-message.success {
+    color: #000;
+    font-weight: 500;
+    }
+
+    .gc-instructions {
+    margin-top: 10px;
+    font-size: 11px;
+    color: #555;
+    background: #f9f9f9;
+    padding: 8px;
+    border: 1px dashed #ccc;
+    }
+</style>
+{% schema %}
+{
+  "name": "Gift Card Helper",
+  "target": "section",
+  "settings": [
+    {
+      "type": "text",
+      "id": "title",
+      "label": "Title",
+      "default": "Have a Gift Card?"
+    }
+  ]
+}
+{% endschema %}
+<div class="gift-card-helper" data-currency="{{ cart.currency.symbol | default: '$' }}">
+  <h2 class="gift-card-title">
+    {{ block.settings.title }}
+  </h2>
+
+  <div class="gift-card-input-row">
+    <input
+      type="text"
+      id="gc-input"
+      placeholder="Enter gift card code"
+      autocomplete="off"
+    />
+    <button id="gc-action-btn">
+      <span class="btn-text">CHECK</span>
+      <span class="loader" hidden></span>
+    </button>
+  </div>
+
+  <p id="gc-message" class="gc-message"></p>
+
+
+  <button id="gc-redeem-btn" class="redeem-btn" hidden>
+     Redeem & Apply to Checkout
+  </button>
+
+  <div id="gc-instructions" class="gc-instructions" hidden>
+    <strong>Discount Applied!</strong><br>
+    Savings: <span id="gc-display-discount" style="font-weight:bold;color:#2c6e49"></span><br>
+    <strong>Cart Total: <span id="gc-display-total" style="font-weight:bold"></span></strong><br>
+    <small>Discount applied automatically at checkout.</small>
+  </div>
+</div>
+
+
+<script>
+(function () {
+  const CART_ATTR = 'gc_session';
+  const root = document.querySelector('.gift-card-helper');
+  if (!root) return;
+
+  const input = root.querySelector('#gc-input');
+  const btn = root.querySelector('#gc-action-btn');
+  const redeemBtn = root.querySelector('#gc-redeem-btn');
+  const message = root.querySelector('#gc-message');
+  const instructions = root.querySelector('#gc-instructions');
+  const loader = btn.querySelector('.loader');
+
+  // New persistent display elements
+  const dispDiscount = root.querySelector('#gc-display-discount');
+  const dispTotal = root.querySelector('#gc-display-total');
+
+  let verifiedCode = null;
+  let verifiedBalance = 0;
+  const currency = root.dataset.currency || 'Rs. '; 
+
+  /* ---------------- Utils ---------------- */
+
+  const formatMoney = v => currency + (Number(v) || 0).toFixed(2);
+
+  const setLoading = (state) => {
+    btn.disabled = state;
+    btn.classList.toggle('loading', state);
+    loader.hidden = !state;
+  };
+
+  const setMessage = (text, type = '') => {
+    message.textContent = text;
+    message.className = `gc-message ${type}`;
+    message.hidden = !text;
+    message.style.display = text ? 'block' : 'none';
+  };
+
+  const updateCartAttribute = async (value) => {
+    await fetch('/cart/update.js', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        attributes: { [CART_ATTR]: value }
+      })
+    });
+  };
+
+  /* ---------------- Restore State ---------------- */
+
+  const restoreSession = async () => {
+    try {
+      const res = await fetch('/cart.js');
+      const cart = await res.json();
+      if (!cart.attributes || !cart.attributes[CART_ATTR]) return;
+
+      const session = JSON.parse(cart.attributes[CART_ATTR]);
+      const discount = parseFloat(session.amount) || 0;
+      
+      const currentTotal = cart.total_price / 100;
+      const displayTotal = Math.max(0, currentTotal - discount);
+
+      input.value = session.code;
+      input.disabled = true;
+
+      btn.querySelector('.btn-text').textContent = 'REMOVE';
+      btn.classList.add('remove');
+
+      redeemBtn.hidden = true;
+      instructions.hidden = false;
+
+      // Populate Persistent Display
+      if(dispDiscount) dispDiscount.textContent = `-${formatMoney(discount)}`;
+      
+      // User Request: Show Total WITHOUT subtracting gift card amount
+      if(dispTotal) dispTotal.textContent = formatMoney(currentTotal);
+      
+      // Hide the transient message to avoid confusion
+      setMessage('');
+
+      // Update Visual Prices on Page
+      updatePagePrices(discount);
+
+      injectCheckoutDiscount(session.discountCode);
+    } catch (e) { console.error(e); }
+  };
+
+  /* ---------------- Checkout Handling ---------------- */
+
+  const injectCheckoutDiscount = (code) => {
+    document.querySelectorAll('a[href="/checkout"]').forEach(link => {
+      link.href = `/checkout?discount=${code}`;
+    });
+  };
+
+  /* ---------------- Actions ---------------- */
+
+  btn.addEventListener('click', async () => {
+    if (btn.classList.contains('remove')) {
+      await updateCartAttribute('');
+      location.reload();
+      return;
+    }
+
+    const code = input.value.trim();
+    if (!code) return;
+
+    setLoading(true);
+    setMessage('');
+
+    try {
+      const res = await fetch(`/apps/gift-card-check?code=${encodeURIComponent(code)}`);
+      if (!res.ok) throw new Error();
+
+      const data = await res.json();
+
+      if (!data.valid) {
+        setMessage(data.message || 'Invalid gift card', 'error');
+        return;
+      }
+
+      verifiedCode = code;
+      verifiedBalance = Number(data.balance);
+
+      setMessage(
+        `Balance verified: ₹${verifiedBalance.toFixed(2)}. Redeem to apply at checkout.`,
+        'success'
+      );
+
+      redeemBtn.hidden = false;
+    } catch {
+      setMessage('Unable to verify gift card', 'error');
+    } finally {
+      setLoading(false);
+    }
+  });
+
+  redeemBtn.addEventListener('click', async () => {
+    redeemBtn.disabled = true;
+    redeemBtn.textContent = 'Processing...';
+
+    try {
+      const cartRes = await fetch('/cart.js');
+      const cart = await cartRes.json();
+      const cartTotal = cart.total_price / 100;
+
+      const res = await fetch('/apps/gift-card-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: verifiedCode,
+          cartTotal
+        })
+      });
+
+      if (!res.ok) throw new Error();
+
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.message);
+
+      await updateCartAttribute(JSON.stringify({
+        code: verifiedCode,
+        amount: data.discountAmount,
+        discountCode: data.discountCode
+      }));
+
+      restoreSession();
+    } catch (e) {
+      setMessage(e.message || 'Failed to redeem gift card', 'error');
+    } finally {
+      redeemBtn.textContent = 'Redeem & Apply to Checkout';
+      redeemBtn.disabled = false;
+    }
+  });
+
+  restoreSession();
+})();
+</script>
+
+
+
